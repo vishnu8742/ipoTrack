@@ -2,6 +2,7 @@ import logging
 import os
 import hmac
 import ipaddress
+from pathlib import Path
 
 from flask import Flask, jsonify, request
 
@@ -13,6 +14,24 @@ logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s %(nam
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+
+
+def _load_local_env() -> None:
+    env_path = Path(__file__).resolve().parent / ".env"
+    if not env_path.exists():
+        return
+    for raw in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+_load_local_env()
 
 
 def _client_ip() -> str:
@@ -70,7 +89,12 @@ def track():
 def track_notify_discord():
     logger.debug("Received request for /track/notify-discord endpoint")
     if not _is_notify_authorized():
-        logger.warning("Unauthorized notify attempt from ip=%s", _client_ip())
+        logger.warning(
+            "Unauthorized notify attempt from ip=%s allow_ips=%s token_set=%s",
+            _client_ip(),
+            os.getenv("TRACK_NOTIFY_ALLOW_IPS", ""),
+            bool(os.getenv("TRACK_NOTIFY_TOKEN", "").strip()),
+        )
         return jsonify({"status": "error", "message": "unauthorized"}), 401
 
     payload = build_track_payload()
