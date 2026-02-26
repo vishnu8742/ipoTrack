@@ -16,9 +16,11 @@ def _truncate(text: str, limit: int) -> str:
 def _render_summary_lines(ipos: List[Dict[str, Any]]) -> str:
     lines = []
     for idx, ipo in enumerate(ipos, 1):
+        reason = ipo.get("reason", "")
+        window = ipo.get("subscription_window", "N/A")
         lines.append(
-            f"{idx}. {ipo.get('ipo_name', 'Unknown')} | GMP: {ipo.get('gmp_percent', 0)}% | "
-            f"{ipo.get('action', 'WATCH')}"
+            f"{idx}. {ipo.get('ipo_name', 'Unknown')} | Window: {window} | "
+            f"GMP: {ipo.get('gmp_percent', 0)}% | {ipo.get('action', 'WATCH')} | Reason: {reason}"
         )
     return "\n".join(lines)
 
