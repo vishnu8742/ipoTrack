@@ -1,5 +1,7 @@
 import logging
 import os
+import hmac
+import ipaddress
 
 from flask import Flask, jsonify, request
 
@@ -14,16 +16,33 @@ app = Flask(__name__)
 
 
 def _client_ip() -> str:
-    # Respect forwarded header only when present; use first hop.
-    forwarded = request.headers.get("X-Forwarded-For", "")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.remote_addr or ""
+    # Do not trust X-Forwarded-For by default (spoofable).
+    client_ip = request.remote_addr or ""
+    trust_proxy = os.getenv("TRUST_PROXY_HEADERS", "false").strip().lower() == "true"
+    trusted_proxies = {
+        x.strip() for x in os.getenv("TRUSTED_PROXY_IPS", "").split(",") if x.strip()
+    }
+    if trust_proxy and client_ip in trusted_proxies:
+        forwarded = request.headers.get("X-Forwarded-For", "")
+        if forwarded:
+            return forwarded.split(",")[0].strip()
+    return client_ip
+
+
+def _is_loopback(ip_text: str) -> bool:
+    try:
+        return ipaddress.ip_address(ip_text).is_loopback
+    except ValueError:
+        return False
 
 
 def _is_notify_authorized() -> bool:
     client_ip = _client_ip()
-    if client_ip in {"127.0.0.1", "::1", "localhost"}:
+    if _is_loopback(client_ip):
+        return True
+
+    allowed_ips = {x.strip() for x in os.getenv("TRACK_NOTIFY_ALLOW_IPS", "").split(",") if x.strip()}
+    if client_ip and client_ip in allowed_ips:
         return True
 
     expected = os.getenv("TRACK_NOTIFY_TOKEN", "").strip()
@@ -36,7 +55,7 @@ def _is_notify_authorized() -> bool:
     if auth_header.lower().startswith("bearer "):
         bearer = auth_header[7:].strip()
 
-    return provided == expected or bearer == expected
+    return hmac.compare_digest(provided, expected) or hmac.compare_digest(bearer, expected)
 
 
 @app.get("/track")
