@@ -82,3 +82,6 @@ Default app port is `8001`.
 
 - Keep `.env` private (already git-ignored).
 - If any secret was exposed, rotate it immediately.
+
+## If you just want IPO updates
+- Just Join Discord Channel: https://discord.gg/EayyBFjzdw
