@@ -66,7 +66,10 @@ Default app port is `8001`.
 ## Environment variables
 
 - `DISCORD_WEBHOOK_URL`: Discord incoming webhook URL
-- `SAFEGOLD_PRICE_URL`: Safegold API endpoint for gold price
+- `SAFEGOLD_POST_RATE_URL`: Safegold POST endpoint returning JWT rate blob
+- `SAFEGOLD_TID_URL`: endpoint used to fetch CSRF/tid token (`/get-tid`)
+- `SAFEGOLD_CSRF`: optional override token (if empty, app fetches from `SAFEGOLD_TID_URL`)
+- `SAFEGOLD_UPI`: header value for Safegold POST endpoint (default `0`)
 - `TRACK_NOTIFY_TOKEN`: secret token for manual/external triggering
 - `TRACK_NOTIFY_ALLOW_IPS`: comma-separated allowed IPs (non-loopback)
 - `TRUST_PROXY_HEADERS`: `true`/`false` (default `false`)
