@@ -4,6 +4,7 @@ Simple Flask API to:
 
 - fetch active IPOs from NSE
 - scrape GMP from Chittorgarh and IPOWatch
+- fetch gold price from Safegold
 - compute GMP percent
 - return cleaned JSON
 - send formatted updates to Discord
@@ -22,6 +23,13 @@ Simple Flask API to:
 ```json
 {
   "date": "26 Feb 2026",
+  "gold_price": {
+    "source": "safegold",
+    "buy_price_per_gram": 7125.5,
+    "sell_price_per_gram": 7050.25,
+    "currency": "INR",
+    "as_of": "2026-02-26T09:20:00+00:00"
+  },
   "ipos": [
     {
       "ipo_name": "PNGS Reva Diamond Jewellery Limited",
@@ -58,6 +66,7 @@ Default app port is `8001`.
 ## Environment variables
 
 - `DISCORD_WEBHOOK_URL`: Discord incoming webhook URL
+- `SAFEGOLD_PRICE_URL`: Safegold API endpoint for gold price
 - `TRACK_NOTIFY_TOKEN`: secret token for manual/external triggering
 - `TRACK_NOTIFY_ALLOW_IPS`: comma-separated allowed IPs (non-loopback)
 - `TRUST_PROXY_HEADERS`: `true`/`false` (default `false`)
@@ -82,3 +91,6 @@ Default app port is `8001`.
 
 - Keep `.env` private (already git-ignored).
 - If any secret was exposed, rotate it immediately.
+
+## If you just want IPO & Gold Rate updates
+- Just Join Discord Channel: https://discord.gg/EayyBFjzdw

@@ -3,10 +3,11 @@ from __future__ import annotations
 import datetime as dt
 import json
 import logging
+import os
 import re
 from dataclasses import dataclass
 from difflib import SequenceMatcher
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
 import requests
 from bs4 import BeautifulSoup
@@ -19,6 +20,7 @@ NSE_HOME = "https://www.nseindia.com/"
 NSE_IPO_API = "https://www.nseindia.com/api/ipo-current-issue"
 CHITTORGARH_GMP_URL = "https://www.chittorgarh.com/ipo/ipo-grey-market-premium-latest-gmp/22/"
 IPOWATCH_GMP_URL = "https://ipowatch.in/ipo-grey-market-premium-latest/"
+SAFEGOLD_PRICE_URL = "https://www.safegold.com/api/v1/buy-price"
 
 
 @dataclass
@@ -66,6 +68,31 @@ def _extract_first_number(text: str) -> Optional[float]:
     if not nums:
         return None
     return float(nums[-1])
+
+
+def _extract_float(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        nums = re.findall(r"[+-]?\d+(?:\.\d+)?", value.replace(",", ""))
+        if nums:
+            try:
+                return float(nums[0])
+            except ValueError:
+                return None
+    return None
+
+
+def _walk_dict_values(data: Any) -> Iterable[tuple[str, Any]]:
+    if isinstance(data, dict):
+        for k, v in data.items():
+            yield str(k).lower(), v
+            yield from _walk_dict_values(v)
+    elif isinstance(data, list):
+        for item in data:
+            yield from _walk_dict_values(item)
 
 
 def _extract_gmp_value(text: str) -> Optional[float]:
@@ -262,6 +289,61 @@ def scrape_ipowatch_gmp() -> List[GMPEntry]:
     return result
 
 
+def fetch_safegold_price() -> Optional[Dict[str, Any]]:
+    url = os.getenv("SAFEGOLD_PRICE_URL", SAFEGOLD_PRICE_URL).strip() or SAFEGOLD_PRICE_URL
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/123.0.0.0 Safari/537.36"
+        ),
+        "Accept": "application/json",
+    }
+    try:
+        logger.debug("Fetching gold price from Safegold URL: %s", url)
+        resp = requests.get(url, headers=headers, timeout=20)
+        resp.raise_for_status()
+        payload = resp.json()
+    except Exception as e:
+        logger.exception("Safegold fetch failed: %s", e)
+        return None
+
+    buy_price = None
+    sell_price = None
+    as_of = None
+    currency = "INR"
+
+    buy_keys = {"buy_price", "buy", "gold_buy_price", "buyprice", "current_buy_price", "rate"}
+    sell_keys = {"sell_price", "sell", "gold_sell_price", "sellprice", "current_sell_price"}
+    ts_keys = {"updated_at", "last_updated", "timestamp", "as_of", "created_at"}
+    ccy_keys = {"currency", "ccy"}
+
+    for key, value in _walk_dict_values(payload):
+        if buy_price is None and key in buy_keys:
+            buy_price = _extract_float(value)
+        if sell_price is None and key in sell_keys:
+            sell_price = _extract_float(value)
+        if as_of is None and key in ts_keys and isinstance(value, str):
+            as_of = value
+        if key in ccy_keys and isinstance(value, str) and value.strip():
+            currency = value.strip().upper()
+
+    # Fallback for structures where only one price exists.
+    if buy_price is None and sell_price is not None:
+        buy_price = sell_price
+    if buy_price is None:
+        logger.warning("Safegold payload parsed but no price found")
+        return None
+
+    return {
+        "source": "safegold",
+        "buy_price_per_gram": round(buy_price, 2),
+        "sell_price_per_gram": round(sell_price, 2) if sell_price is not None else None,
+        "currency": currency,
+        "as_of": as_of or dt.datetime.now(dt.timezone.utc).isoformat(),
+    }
+
+
 def _format_date(d: dt.date) -> str:
     return f"{d.day} {d.strftime('%b %Y')}"
 
@@ -327,6 +409,8 @@ def build_track_payload() -> Dict[str, Any]:
     logger.debug("Fetched %d IPOs", len(ipos))
     gmp_rows = scrape_chittorgarh_gmp() + scrape_ipowatch_gmp()
     logger.debug("Collected %d GMP rows", len(gmp_rows))
+    gold_price = fetch_safegold_price()
+    logger.debug("Safegold price found: %s", bool(gold_price))
     today = _today()
     out_rows: List[Dict[str, Any]] = []
     for ipo in ipos:
@@ -350,6 +434,7 @@ def build_track_payload() -> Dict[str, Any]:
 
     return {
         "date": _format_date(today),
+        "gold_price": gold_price,
         "ipos": out_rows,
     }
 

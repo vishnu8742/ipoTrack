@@ -25,9 +25,22 @@ def _render_summary_lines(ipos: List[Dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+def _render_gold_line(gold_price: Dict[str, Any] | None) -> str:
+    if not gold_price:
+        return "Gold (Safegold): unavailable"
+    ccy = gold_price.get("currency", "INR")
+    buy = gold_price.get("buy_price_per_gram")
+    sell = gold_price.get("sell_price_per_gram")
+    as_of = gold_price.get("as_of", "")
+    if sell is None:
+        return f"Gold (Safegold): Buy {ccy} {buy}/g | As of {as_of}"
+    return f"Gold (Safegold): Buy {ccy} {buy}/g | Sell {ccy} {sell}/g | As of {as_of}"
+
+
 def build_discord_payload(track_payload: Dict[str, Any]) -> Dict[str, Any]:
     date_text = track_payload.get("date", "")
     ipos = track_payload.get("ipos", []) or []
+    gold_price = track_payload.get("gold_price")
 
     title = f"IPO Track Update - {date_text}" if date_text else "IPO Track Update"
     summary = "No active IPO entries with GMP match found."
@@ -42,6 +55,11 @@ def build_discord_payload(track_payload: Dict[str, Any]) -> Dict[str, Any]:
         {
             "name": "Summary",
             "value": _truncate(summary, 1024),
+            "inline": False,
+        },
+        {
+            "name": "Gold Price",
+            "value": _truncate(_render_gold_line(gold_price), 1024),
             "inline": False,
         },
         {
