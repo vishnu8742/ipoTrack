@@ -36,13 +36,71 @@ def _render_gold_line(gold_price: Dict[str, Any] | None) -> str:
         return f"Gold (Safegold): Buy {ccy} {buy}/g | As of {as_of}"
     return f"Gold (Safegold): Buy {ccy} {buy}/g | Sell {ccy} {sell}/g | As of {as_of}"
 
-
 def build_discord_payload(track_payload: Dict[str, Any]) -> Dict[str, Any]:
     date_text = track_payload.get("date", "")
     ipos = track_payload.get("ipos", []) or []
     gold_price = track_payload.get("gold_price")
 
-    title = f"IPO Track Update - {date_text}" if date_text else "IPO Track Update"
+    fields = []
+
+    # IPO fields
+    for ipo in ipos:
+        name = ipo.get("ipo_name", "Unknown IPO")
+        window = ipo.get("subscription_window", "N/A")
+        gmp = ipo.get("gmp_percent", "N/A")
+        action = ipo.get("action", "WATCH")
+        reason = ipo.get("reason", "")
+
+        value = (
+            f"📅 **Window:** {window}\n"
+            f"📈 **GMP:** {gmp}%\n"
+            f"⚠️ **Action:** **{action}**\n\n"
+            f"**Reason**\n{reason}"
+        )
+
+        fields.append({
+            "name": f"🏢 {name}",
+            "value": value,
+            "inline": False
+        })
+
+    # Gold price
+    if gold_price:
+        buy = gold_price.get("buy_price_per_gram")
+        as_of = gold_price.get("as_of", "")
+
+        gold_value = (
+            f"🪙 **Buy:** ₹{buy}/gram\n"
+            f"🕒 **Time:** {as_of[:16].replace('T',' ')}"
+        )
+
+        fields.append({
+            "name": "Gold Price (Safegold)",
+            "value": gold_value,
+            "inline": False
+        })
+
+    embed = {
+        "title": f"📊 IPO & GoldTracker – {date_text}",
+        "description": f"Active IPOs with GMP insights: **{len(ipos)}**",
+        "color": 0x2E86DE,
+        "fields": fields,
+        "footer": {
+            "text": "IPO Track Bot"
+        }
+    }
+
+    return {
+        "content": None,
+        "embeds": [embed],
+    }
+
+# def build_discord_payload(track_payload: Dict[str, Any]) -> Dict[str, Any]:
+    date_text = track_payload.get("date", "")
+    ipos = track_payload.get("ipos", []) or []
+    gold_price = track_payload.get("gold_price")
+
+    title = f"IPO & Gold Track Update - {date_text}" if date_text else "IPO Track Update"
     summary = "No active IPO entries with GMP match found."
     if ipos:
         summary = _render_summary_lines(ipos)
