@@ -7,6 +7,7 @@ from pathlib import Path
 from flask import Flask, jsonify, request
 
 from discord_notify import send_to_discord
+from telegram_notify import send_to_telegram
 from track_pipeline import build_track_payload
 
 # configure logging for the application
@@ -101,6 +102,23 @@ def track_notify_discord():
     webhook_url = os.getenv("DISCORD_WEBHOOK_URL")
     result = send_to_discord(payload, webhook_url=webhook_url)
     return jsonify({"status": "ok", "discord": result, "payload": payload})
+
+
+@app.post("/track/notify-telegram")
+def track_notify_telegram():
+    logger.debug("Received request for /track/notify-telegram endpoint")
+    if not _is_notify_authorized():
+        logger.warning(
+            "Unauthorized telegram notify attempt from ip=%s allow_ips=%s token_set=%s",
+            _client_ip(),
+            os.getenv("TRACK_NOTIFY_ALLOW_IPS", ""),
+            bool(os.getenv("TRACK_NOTIFY_TOKEN", "").strip()),
+        )
+        return jsonify({"status": "error", "message": "unauthorized"}), 401
+
+    payload = build_track_payload()
+    result = send_to_telegram(payload)
+    return jsonify({"status": "ok", "telegram": result, "payload": payload})
 
 
 if __name__ == "__main__":

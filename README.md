@@ -8,6 +8,7 @@ Simple Flask API to:
 - compute GMP percent
 - return cleaned JSON
 - send formatted updates to Discord
+- send formatted updates to Telegram
 
 ## Endpoints
 
@@ -16,6 +17,10 @@ Simple Flask API to:
 
 - `POST /track/notify-discord`
   - Builds payload and sends to Discord webhook.
+  - Protected by local-IP/token checks.
+
+- `POST /track/notify-telegram`
+  - Builds payload and sends to Telegram bot chat.
   - Protected by local-IP/token checks.
 
 ## Response format (`/track`)
@@ -66,6 +71,10 @@ Default app port is `8001`.
 ## Environment variables
 
 - `DISCORD_WEBHOOK_URL`: Discord incoming webhook URL
+- `TELEGRAM_BOT_TOKEN`: Telegram bot token from BotFather
+- `TELEGRAM_CHAT_ID`: destination chat ID (user/group/channel)
+- `TELEGRAM_PARSE_MODE`: optional parse mode (`Markdown`, `HTML`, or empty)
+- `TELEGRAM_DISABLE_WEB_PREVIEW`: `true`/`false` (default `true`)
 - `SAFEGOLD_POST_RATE_URL`: Safegold POST endpoint returning JWT rate blob
 - `SAFEGOLD_TID_URL`: endpoint used to fetch CSRF/tid token (`/get-tid`)
 - `SAFEGOLD_CSRF`: optional override token (if empty, app fetches from `SAFEGOLD_TID_URL`)
@@ -75,7 +84,7 @@ Default app port is `8001`.
 - `TRUST_PROXY_HEADERS`: `true`/`false` (default `false`)
 - `TRUSTED_PROXY_IPS`: comma-separated proxy IPs (used only when trust is enabled)
 
-## Auth behavior for `/track/notify-discord`
+## Auth behavior for notify endpoints
 
 - Always allows loopback (`127.0.0.1`, `::1`) for local cron.
 - Allows IPs listed in `TRACK_NOTIFY_ALLOW_IPS`.
@@ -88,6 +97,10 @@ Default app port is `8001`.
 ```cron
 50 9 * * * curl -fsS -X POST http://127.0.0.1:8001/track/notify-discord >> /var/log/ipo_track_cron.log 2>&1
 0 15 * * * curl -fsS -X POST http://127.0.0.1:8001/track/notify-discord >> /var/log/ipo_track_cron.log 2>&1
+
+# Telegram (optional, separate trigger)
+50 9 * * * curl -fsS -X POST http://127.0.0.1:8001/track/notify-telegram >> /var/log/ipo_track_cron.log 2>&1
+0 15 * * * curl -fsS -X POST http://127.0.0.1:8001/track/notify-telegram >> /var/log/ipo_track_cron.log 2>&1
 ```
 
 ## Notes
