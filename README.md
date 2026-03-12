@@ -110,3 +110,4 @@ Default app port is `8001`.
 
 ## If you just want IPO & Gold Rate updates
 - Just Join Discord Channel: https://discord.gg/EayyBFjzdw
+- Just Join Telegram Channel: https://t.me/ipoTrackUpdates
