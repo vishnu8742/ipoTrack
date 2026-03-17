@@ -67,10 +67,12 @@ def build_discord_payload(track_payload: Dict[str, Any]) -> Dict[str, Any]:
     # Gold price
     if gold_price:
         buy = gold_price.get("buy_price_per_gram")
+        sell = gold_price.get("sell_price_per_gram")
         as_of = gold_price.get("as_of", "")
 
         gold_value = (
             f"🪙 **Buy:** ₹{buy}/gram\n"
+            f"💱 **Sell:** ₹{sell}/gram\n"
             f"🕒 **Time:** {as_of[:16].replace('T',' ')}"
         )
 
