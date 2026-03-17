@@ -75,10 +75,8 @@ Default app port is `8001`.
 - `TELEGRAM_CHAT_ID`: destination chat ID (user/group/channel)
 - `TELEGRAM_PARSE_MODE`: optional parse mode (`Markdown`, `HTML`, or empty)
 - `TELEGRAM_DISABLE_WEB_PREVIEW`: `true`/`false` (default `true`)
-- `SAFEGOLD_POST_RATE_URL`: Safegold POST endpoint returning JWT rate blob
-- `SAFEGOLD_TID_URL`: endpoint used to fetch CSRF/tid token (`/get-tid`)
-- `SAFEGOLD_CSRF`: optional override token (if empty, app fetches from `SAFEGOLD_TID_URL`)
-- `SAFEGOLD_UPI`: header value for Safegold POST endpoint (default `0`)
+- `SAFEGOLD_BUY_URL`: Safegold API endpoint for gold buy price
+- `SAFEGOLD_SELL_URL`: Safegold API endpoint for gold sell price
 - `TRACK_NOTIFY_TOKEN`: secret token for manual/external triggering
 - `TRACK_NOTIFY_ALLOW_IPS`: comma-separated allowed IPs (non-loopback)
 - `TRUST_PROXY_HEADERS`: `true`/`false` (default `false`)

@@ -5,10 +5,9 @@ import json
 import logging
 import os
 import re
-import base64
 from dataclasses import dataclass
 from difflib import SequenceMatcher
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, List, Optional
 
 import requests
 from bs4 import BeautifulSoup
@@ -21,8 +20,14 @@ NSE_HOME = "https://www.nseindia.com/"
 NSE_IPO_API = "https://www.nseindia.com/api/ipo-current-issue"
 CHITTORGARH_GMP_URL = "https://www.chittorgarh.com/ipo/ipo-grey-market-premium-latest-gmp/22/"
 IPOWATCH_GMP_URL = "https://ipowatch.in/ipo-grey-market-premium-latest/"
-SAFEGOLD_POST_RATE_URL = "https://www.safegold.com/YnV5LXJhdGU="
-SAFEGOLD_TID_URL = "https://www.safegold.com/get-tid"
+SAFEGOLD_BUY_URL = (
+    "https://website-backend.safegold.com/api/v1/metal/prices/buy/gold_9999"
+    "?has_discount=0&discount_type=upi"
+)
+SAFEGOLD_SELL_URL = (
+    "https://website-backend.safegold.com/api/v1/metal/prices/sell/gold_9999"
+    "?has_discount=0&discount_type=upi"
+)
 
 
 @dataclass
@@ -87,56 +92,6 @@ def _extract_float(value: Any) -> Optional[float]:
     return None
 
 
-def _walk_dict_values(data: Any) -> Iterable[tuple[str, Any]]:
-    if isinstance(data, dict):
-        for k, v in data.items():
-            yield str(k).lower(), v
-            yield from _walk_dict_values(v)
-    elif isinstance(data, list):
-        for item in data:
-            yield from _walk_dict_values(item)
-
-
-def _b64decode_with_padding(value: str) -> bytes:
-    padded = value + "=" * (-len(value) % 4)
-    return base64.urlsafe_b64decode(padded.encode("utf-8"))
-
-
-def _decode_jwt_no_verify(token: str) -> Optional[Dict[str, Any]]:
-    parts = token.split(".")
-    if len(parts) != 3:
-        return None
-    try:
-        payload_raw = _b64decode_with_padding(parts[1]).decode("utf-8")
-        return json.loads(payload_raw)
-    except Exception:
-        return None
-
-
-def _decode_embedded_blob(blob: str) -> Optional[Dict[str, Any]]:
-    candidates = [blob]
-    for item in candidates:
-        try:
-            decoded = base64.b64decode(item).decode("utf-8")
-            candidates.append(decoded)
-        except Exception:
-            pass
-        try:
-            decoded = _b64decode_with_padding(item).decode("utf-8")
-            candidates.append(decoded)
-        except Exception:
-            pass
-
-    for candidate in candidates:
-        if candidate.startswith("{") and candidate.endswith("}"):
-            try:
-                return json.loads(candidate)
-            except Exception:
-                continue
-        decoded_jwt = _decode_jwt_no_verify(candidate)
-        if decoded_jwt:
-            return decoded_jwt
-    return None
 
 
 def _extract_gmp_value(text: str) -> Optional[float]:
@@ -340,221 +295,53 @@ def fetch_safegold_price() -> Optional[Dict[str, Any]]:
             "AppleWebKit/537.36 (KHTML, like Gecko) "
             "Chrome/123.0.0.0 Safari/537.36"
         ),
-        "Accept": "application/json,text/plain,*/*",
-        "Origin": "https://www.safegold.com",
-        "Referer": "https://www.safegold.com/",
-        "X-Requested-With": "XMLHttpRequest",
+        "Accept": "application/json",
     }
 
-    def _mask_secret(value: str) -> str:
-        if not value:
-            return ""
-        if len(value) <= 10:
-            return "*" * len(value)
-        return f"{value[:6]}...{value[-4:]}"
 
-    def _parse_price_from_json(payload: Any) -> Optional[Dict[str, Any]]:
-        buy_price = None
-        sell_price = None
-        as_of = None
-        currency = "INR"
+    buy_url = os.getenv("SAFEGOLD_BUY_URL", SAFEGOLD_BUY_URL).strip() or SAFEGOLD_BUY_URL
+    sell_url = os.getenv("SAFEGOLD_SELL_URL", SAFEGOLD_SELL_URL).strip() or SAFEGOLD_SELL_URL
 
-        buy_keys = {"buy_price", "buy", "gold_buy_price", "buyprice", "current_buy_price", "rate"}
-        sell_keys = {"sell_price", "sell", "gold_sell_price", "sellprice", "current_sell_price"}
-        ts_keys = {"updated_at", "last_updated", "timestamp", "as_of", "created_at"}
-        ccy_keys = {"currency", "ccy"}
-
-        for key, value in _walk_dict_values(payload):
-            if buy_price is None and key in buy_keys:
-                buy_price = _extract_float(value)
-            if sell_price is None and key in sell_keys:
-                sell_price = _extract_float(value)
-            if as_of is None and key in ts_keys and isinstance(value, str):
-                as_of = value
-            if key in ccy_keys and isinstance(value, str) and value.strip():
-                currency = value.strip().upper()
-
-        if buy_price is None and sell_price is not None:
-            buy_price = sell_price
-        if buy_price is None:
-            return None
-        return {
-            "source": "safegold",
-            "buy_price_per_gram": round(buy_price, 2),
-            "sell_price_per_gram": round(sell_price, 2) if sell_price is not None else None,
-            "currency": currency,
-            "as_of": as_of or dt.datetime.now(dt.timezone.utc).isoformat(),
-        }
-
-    def _fetch_from_post_jwt() -> Optional[Dict[str, Any]]:
-        post_url = os.getenv("SAFEGOLD_POST_RATE_URL", SAFEGOLD_POST_RATE_URL).strip() or SAFEGOLD_POST_RATE_URL
-        tid_url = os.getenv("SAFEGOLD_TID_URL", SAFEGOLD_TID_URL).strip() or SAFEGOLD_TID_URL
-        home_url = os.getenv("SAFEGOLD_HOME_URL", "https://www.safegold.com/").strip() or "https://www.safegold.com/"
-        csrf = os.getenv("SAFEGOLD_CSRF", "").strip()
-        upi = os.getenv("SAFEGOLD_UPI", "0").strip() or "0"
-        session = requests.Session()
-        session.headers.update(headers)
-
-        # Some Safegold edge rules require a prior page load before API calls.
+    def _fetch_json(url: str) -> Optional[Dict[str, Any]]:
         try:
-            home_resp = session.get(home_url, timeout=20)
+            logger.debug("Fetching Safegold price URL: %s", url)
+            resp = requests.get(url, headers=headers, timeout=20)
             logger.debug(
-                "Safegold home bootstrap status=%s headers=%s cookies=%s",
-                home_resp.status_code,
-                dict(home_resp.headers),
-                session.cookies.get_dict(),
+                "Safegold price response status=%s headers=%s body_sample=%s",
+                resp.status_code,
+                dict(resp.headers),
+                (resp.text or "")[:500],
             )
+            resp.raise_for_status()
+            return resp.json()
         except Exception as e:
-            logger.debug("Safegold home bootstrap failed (continuing): %s", e)
-
-        def _fetch_csrf_token() -> str:
-            if csrf:
-                logger.debug("Using SAFEGOLD_CSRF from env (masked): %s", _mask_secret(csrf))
-                return csrf
-            try:
-                logger.debug("Fetching Safegold CSRF token from: %s", tid_url)
-                logger.debug("Safegold get-tid request headers: %s", headers)
-                tid_resp = session.get(tid_url, timeout=20)
-                logger.debug(
-                    "Safegold get-tid response status=%s headers=%s body_sample=%s",
-                    tid_resp.status_code,
-                    dict(tid_resp.headers),
-                    (tid_resp.text or "")[:500],
-                )
-                logger.debug("Safegold get-tid cookies: %s", session.cookies.get_dict())
-                tid_resp.raise_for_status()
-                raw = (tid_resp.text or "").strip()
-                if raw.startswith("{"):
-                    try:
-                        obj = tid_resp.json()
-                    except Exception:
-                        obj = {}
-                    for key in ("csrf", "tid", "token", "data"):
-                        val = obj.get(key)
-                        if isinstance(val, str) and val.strip():
-                            return val.strip()
-                return raw.strip('"')
-            except Exception as e:
-                logger.warning("Safegold get-tid failed: %s", e)
-                return ""
-
-        csrf_value = _fetch_csrf_token()
-        if not csrf_value:
-            logger.debug("No Safegold CSRF token available; skipping POST JWT fetch")
+            logger.warning("Safegold price fetch failed for %s: %s", url, e)
             return None
 
-        post_headers = {
-            "User-Agent": headers["User-Agent"],
-            "Accept": "application/json,text/plain,*/*",
-            "csrf": csrf_value,
-            "tid": csrf_value,
-            "x-csrf-token": csrf_value,
-            "x-xsrf-token": csrf_value,
-            "upi": upi,
-            "Origin": "https://www.safegold.com",
-            "Referer": "https://www.safegold.com/",
-            "X-Requested-With": "XMLHttpRequest",
-        }
-        safe_post_headers = dict(post_headers)
-        safe_post_headers["csrf"] = _mask_secret(safe_post_headers.get("csrf", ""))
-        safe_post_headers["tid"] = _mask_secret(safe_post_headers.get("tid", ""))
-        safe_post_headers["x-csrf-token"] = _mask_secret(safe_post_headers.get("x-csrf-token", ""))
-        safe_post_headers["x-xsrf-token"] = _mask_secret(safe_post_headers.get("x-xsrf-token", ""))
-        try:
-            logger.debug("Fetching Safegold rate JWT via POST URL: %s", post_url)
-            logger.debug("Safegold POST request headers: %s", safe_post_headers)
-            attempts = [
-                {"kwargs": {"headers": post_headers}},
-                {"kwargs": {"headers": {**post_headers, "Content-Type": "application/json"}, "json": {"upi": int(upi)}}},
-                {
-                    "kwargs": {
-                        "headers": {**post_headers, "Content-Type": "application/x-www-form-urlencoded"},
-                        "data": {"upi": upi},
-                    }
-                },
-                {
-                    "kwargs": {
-                        "headers": {**post_headers, "Content-Type": "application/x-www-form-urlencoded"},
-                        "data": {"upi": upi, "csrf": csrf_value, "tid": csrf_value},
-                    }
-                },
-                {
-                    "kwargs": {
-                        "headers": {**post_headers, "Content-Type": "application/json"},
-                        "json": {"upi": int(upi), "csrf": csrf_value, "tid": csrf_value},
-                    }
-                },
-            ]
-            resp = None
-            last_error = None
-            for idx, attempt in enumerate(attempts, start=1):
-                try:
-                    resp = session.post(post_url, timeout=20, **attempt["kwargs"])
-                    logger.debug(
-                        "Safegold POST attempt=%s status=%s headers=%s body_sample=%s cookies=%s",
-                        idx,
-                        resp.status_code,
-                        dict(resp.headers),
-                        (resp.text or "")[:500],
-                        session.cookies.get_dict(),
-                    )
-                    if resp.status_code < 400:
-                        break
-                    last_error = RuntimeError(f"status={resp.status_code}")
-                except Exception as err:
-                    last_error = err
-            if resp is None or resp.status_code >= 400:
-                raise RuntimeError(f"Safegold POST failed after retries: {last_error}")
-        except Exception as e:
-            logger.warning("Safegold POST JWT fetch failed: %s", e)
-            return None
+    buy_payload = _fetch_json(buy_url)
+    sell_payload = _fetch_json(sell_url)
 
-        token_candidates: List[str] = []
-        raw_text = (resp.text or "").strip().strip('"')
-        if raw_text:
-            token_candidates.append(raw_text)
+    buy_rate = _extract_float(buy_payload.get("rate")) if isinstance(buy_payload, dict) else None
+    sell_rate = _extract_float(sell_payload.get("rate")) if isinstance(sell_payload, dict) else None
 
-        try:
-            parsed = resp.json()
-        except Exception:
-            parsed = None
-        if isinstance(parsed, dict):
-            for key in ["token", "jwt", "data", "rate", "payload"]:
-                val = parsed.get(key)
-                if isinstance(val, str) and val.strip():
-                    token_candidates.append(val.strip())
-        elif isinstance(parsed, str) and parsed.strip():
-            token_candidates.append(parsed.strip())
-
-        for candidate in token_candidates:
-            jwt_payload = _decode_jwt_no_verify(candidate)
-            if not jwt_payload:
-                decoded = _decode_embedded_blob(candidate)
-                if decoded:
-                    result = _parse_price_from_json(decoded)
-                    if result:
-                        return result
-                continue
-
-            result = _parse_price_from_json(jwt_payload)
-            if result:
-                return result
-
-            inner_blob = jwt_payload.get("data")
-            if isinstance(inner_blob, str) and inner_blob.strip():
-                decoded_inner = _decode_embedded_blob(inner_blob.strip())
-                if decoded_inner:
-                    result = _parse_price_from_json(decoded_inner)
-                    if result:
-                        return result
+    # If both failed, bail.
+    if buy_rate is None and sell_rate is None:
+        logger.warning("Safegold buy/sell price fetch failed")
         return None
 
-    post_result = _fetch_from_post_jwt()
-    if post_result:
-        return post_result
+    as_of = None
+    if isinstance(buy_payload, dict):
+        as_of = buy_payload.get("expires_at") or buy_payload.get("updated_at")
+    if not as_of and isinstance(sell_payload, dict):
+        as_of = sell_payload.get("expires_at") or sell_payload.get("updated_at")
 
-    logger.warning("Safegold POST rate fetch failed; no fallback configured")
-    return None
+    return {
+        "source": "safegold",
+        "buy_price_per_gram": round(buy_rate, 2) if buy_rate is not None else None,
+        "sell_price_per_gram": round(sell_rate, 2) if sell_rate is not None else None,
+        "currency": "INR",
+        "as_of": as_of or dt.datetime.now(dt.timezone.utc).isoformat(),
+    }
 
 
 def _format_date(d: dt.date) -> str:
