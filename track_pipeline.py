@@ -37,6 +37,8 @@ class IPOEntry:
     open_date: dt.date
     close_date: dt.date
     issue_price: float
+    subscription_percent: Optional[float]
+    institutional_subscription_percent: Optional[float]
 
 
 @dataclass
@@ -133,6 +135,61 @@ def _parse_issue_price(value: Any) -> Optional[float]:
     return float(parts[-1])
 
 
+def _calc_subscription_percent(bid: Optional[float], offered: Optional[float]) -> Optional[float]:
+    if bid is None or offered is None or offered == 0:
+        return None
+    return round((bid / offered) * 100, 2)
+
+
+def _find_key_value(row: Dict[str, Any], candidates: List[str]) -> Optional[Any]:
+    for key in candidates:
+        if key in row and row[key] is not None:
+            return row[key]
+    return None
+
+
+def _extract_institutional_subscription(row: Dict[str, Any]) -> Optional[float]:
+    # Heuristics for NSE payloads that sometimes include QIB/Institutional fields.
+    qib_bid_keys = [
+        "qibBid",
+        "qibBids",
+        "qibSharesBid",
+        "qibSharesApplied",
+        "noOfsharesBidQib",
+        "qib_no_of_shares_bid",
+        "qibBidShares",
+        "qibBidQty",
+    ]
+    qib_offered_keys = [
+        "qibSharesOffered",
+        "qibShares",
+        "qibOffer",
+        "noOfSharesOfferedQib",
+        "qib_no_of_shares_offered",
+        "qibOfferedQty",
+    ]
+    inst_bid_keys = [
+        "institutionalBid",
+        "institutionalBids",
+        "instBid",
+        "instBids",
+        "instSharesBid",
+        "instBidShares",
+        "instBidQty",
+    ]
+    inst_offered_keys = [
+        "institutionalSharesOffered",
+        "instSharesOffered",
+        "instOfferedQty",
+    ]
+
+    bid = _find_key_value(row, qib_bid_keys) or _find_key_value(row, inst_bid_keys)
+    offered = _find_key_value(row, qib_offered_keys) or _find_key_value(row, inst_offered_keys)
+    bid_val = _extract_float(bid)
+    offered_val = _extract_float(offered)
+    return _calc_subscription_percent(bid_val, offered_val)
+
+
 def _parse_date(value: str) -> Optional[dt.date]:
     if not value:
         return None
@@ -193,9 +250,33 @@ def fetch_nse_ipos() -> List[IPOEntry]:
             or row.get("issue_price")
             or row.get("price")
         )
+        offered_total = _extract_float(
+            row.get("noOfSharesOffered")
+            or row.get("noOfsharesOffered")
+            or row.get("no_of_shares_offered")
+            or row.get("sharesOffered")
+        )
+        bid_total = _extract_float(
+            row.get("noOfsharesBid")
+            or row.get("noOfSharesBid")
+            or row.get("no_of_shares_bid")
+            or row.get("sharesBid")
+        )
+        subscription_percent = _calc_subscription_percent(bid_total, offered_total)
+        institutional_subscription_percent = _extract_institutional_subscription(row)
         if not (name and open_date and close_date and issue_price):
             continue
-        ipos.append(IPOEntry(name, symbol, open_date, close_date, issue_price))
+        ipos.append(
+            IPOEntry(
+                name,
+                symbol,
+                open_date,
+                close_date,
+                issue_price,
+                subscription_percent,
+                institutional_subscription_percent,
+            )
+        )
     return ipos
 
 
@@ -427,6 +508,8 @@ def build_track_payload() -> Dict[str, Any]:
                 "ipo_name": ipo.ipo_name,
                 "subscription_window": f"{_format_date(ipo.open_date)} – {_format_date(ipo.close_date)}",
                 "gmp_percent": gmp_percent,
+                "subscription_percent": ipo.subscription_percent,
+                "institutional_subscription_percent": ipo.institutional_subscription_percent,
                 "action": action_pack["action"],
                 "reason": action_pack["reason"],
             }

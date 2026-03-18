@@ -48,12 +48,16 @@ def build_discord_payload(track_payload: Dict[str, Any]) -> Dict[str, Any]:
         name = ipo.get("ipo_name", "Unknown IPO")
         window = ipo.get("subscription_window", "N/A")
         gmp = ipo.get("gmp_percent", "N/A")
+        subs = ipo.get("subscription_percent", "N/A")
+        inst_subs = ipo.get("institutional_subscription_percent", "N/A")
         action = ipo.get("action", "WATCH")
         reason = ipo.get("reason", "")
 
         value = (
             f"📅 **Window:** {window}\n"
             f"📈 **GMP:** {gmp}%\n"
+            f"📊 **Subscription:** {subs}%\n"
+            f"🏦 **Institutional:** {inst_subs}%\n"
             f"⚠️ **Action:** **{action}**\n\n"
             f"**Reason**\n{reason}"
         )
