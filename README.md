@@ -40,8 +40,7 @@ Simple Flask API to:
       "ipo_name": "PNGS Reva Diamond Jewellery Limited",
       "subscription_window": "24 Feb 2026 – 26 Feb 2026",
       "gmp_percent": 3.9,
-      "subscription_percent": 28.88,
-      "institutional_subscription_percent": 12.45,
+      "subscription_multiple": 1.25,
       "action": "AVOID",
       "reason": "Low GMP around 4% and moderate subscription."
     }
