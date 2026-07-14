@@ -8,6 +8,7 @@ import re
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from typing import Any, Dict, List, Optional
+from zoneinfo import ZoneInfo
 
 import requests
 from bs4 import BeautifulSoup
@@ -184,7 +185,12 @@ def _parse_date(value: str) -> Optional[dt.date]:
 
 
 def _today() -> dt.date:
-    return dt.date.today()
+    timezone_name = os.getenv("TRACK_TIMEZONE", "Asia/Kolkata").strip() or "Asia/Kolkata"
+    try:
+        return dt.datetime.now(ZoneInfo(timezone_name)).date()
+    except Exception:
+        logger.warning("Invalid TRACK_TIMEZONE=%s; falling back to UTC", timezone_name)
+        return dt.datetime.now(dt.timezone.utc).date()
 
 
 def fetch_nse_ipos() -> List[IPOEntry]:
@@ -530,6 +536,7 @@ def build_track_payload() -> Dict[str, Any]:
                 "ipo_name": ipo.ipo_name,
                 "ipo_type": ipo.ipo_type,
                 "subscription_window": f"{_format_date(ipo.open_date)} – {_format_date(ipo.close_date)}",
+                "is_last_day_to_apply": ipo.close_date == today,
                 "issue_price": issue_price,
                 "minimum_lot_size": minimum_lot_size,
                 "minimum_application_amount": minimum_application_amount,

@@ -52,6 +52,7 @@ def build_discord_payload(track_payload: Dict[str, Any]) -> Dict[str, Any]:
         subs = ipo.get("subscription_multiple")
         lot_size = ipo.get("minimum_lot_size")
         minimum_amount = ipo.get("minimum_application_amount")
+        is_last_day = bool(ipo.get("is_last_day_to_apply"))
         action = ipo.get("action", "WATCH")
         reason = ipo.get("reason", "")
 
@@ -60,7 +61,9 @@ def build_discord_payload(track_payload: Dict[str, Any]) -> Dict[str, Any]:
         lot_text = f"{lot_size} shares" if lot_size is not None else "N/A"
         amount_text = f"₹{minimum_amount:,.2f}" if minimum_amount is not None else "N/A"
 
+        last_day_tag = "🚨 **LAST DAY TO APPLY**\n" if is_last_day else ""
         value = (
+            f"{last_day_tag}"
             f"📅 **Window:** {window}\n"
             f"📊 **Type:** {ipo_type}\n"
             f"📈 **GMP:** {gmp_text}\n"
@@ -72,7 +75,7 @@ def build_discord_payload(track_payload: Dict[str, Any]) -> Dict[str, Any]:
         )
 
         fields.append({
-            "name": f"🏢 {name}",
+            "name": f"🏢 {name}{' | LAST DAY TO APPLY' if is_last_day else ''}",
             "value": value,
             "inline": False
         })

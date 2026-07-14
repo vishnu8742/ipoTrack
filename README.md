@@ -41,6 +41,7 @@ Simple Flask API to:
       "ipo_name": "PNGS Reva Diamond Jewellery Limited",
       "ipo_type": "MAINBOARD",
       "subscription_window": "24 Feb 2026 – 26 Feb 2026",
+      "is_last_day_to_apply": true,
       "issue_price": 386.0,
       "minimum_lot_size": 38,
       "minimum_application_amount": 14668.0,
@@ -85,6 +86,7 @@ Default app port is `8001`.
 - `SAFEGOLD_SELL_URL`: Safegold API endpoint for gold sell price
 - `TRACK_NOTIFY_TOKEN`: secret token for manual/external triggering
 - `TRACK_NOTIFY_ALLOW_IPS`: comma-separated allowed IPs (non-loopback)
+- `TRACK_TIMEZONE`: timezone used to identify the last application day (default `Asia/Kolkata`)
 - `TRUST_PROXY_HEADERS`: `true`/`false` (default `false`)
 - `TRUSTED_PROXY_IPS`: comma-separated proxy IPs (used only when trust is enabled)
 
