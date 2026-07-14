@@ -34,9 +34,12 @@ SAFEGOLD_SELL_URL = (
 class IPOEntry:
     ipo_name: str
     symbol: str
+    ipo_type: str
     open_date: dt.date
     close_date: dt.date
-    issue_price: float
+    issue_price: Optional[float]
+    minimum_lot_size: Optional[int]
+    minimum_application_amount: Optional[float]
     subscription_multiple: Optional[float]
 
 
@@ -45,6 +48,8 @@ class GMPEntry:
     ipo_name: str
     gmp: float
     source: str
+    issue_price: Optional[float] = None
+    minimum_lot_size: Optional[int] = None
 
 
 def _session() -> requests.Session:
@@ -140,6 +145,24 @@ def _calc_subscription_multiple(bid: Optional[float], offered: Optional[float]) 
     return round((bid / offered), 2)
 
 
+def _parse_lot_size(row: Dict[str, Any]) -> Optional[int]:
+    candidates = [
+        "minBidQuantity",
+        "minimumBidQuantity",
+        "minimumOrderQuantity",
+        "marketLot",
+        "lotSize",
+        "bidLot",
+        "minOrderQty",
+        "minimum_lot_size",
+    ]
+    for key in candidates:
+        value = _extract_float(row.get(key))
+        if value is not None and value > 0:
+            return int(value)
+    return None
+
+
 def _parse_date(value: str) -> Optional[dt.date]:
     if not value:
         return None
@@ -192,6 +215,7 @@ def fetch_nse_ipos() -> List[IPOEntry]:
         series = str(row.get("series") or "").upper().strip()
         if series == "DEBT":
             continue
+        ipo_type = "SME" if series == "SME" else "MAINBOARD"
         open_date = _parse_date(str(row.get("issueStartDate") or row.get("openDate") or row.get("open_date") or ""))
         close_date = _parse_date(str(row.get("issueEndDate") or row.get("closeDate") or row.get("close_date") or ""))
         issue_price = _parse_issue_price(
@@ -200,6 +224,10 @@ def fetch_nse_ipos() -> List[IPOEntry]:
             or row.get("issue_price")
             or row.get("price")
         )
+        minimum_lot_size = _parse_lot_size(row)
+        minimum_application_amount = None
+        if issue_price is not None and minimum_lot_size is not None:
+            minimum_application_amount = round(issue_price * minimum_lot_size, 2)
         no_of_time = _extract_float(row.get("noOfTime") or row.get("no_of_time"))
         offered_total = _extract_float(
             row.get("noOfSharesOffered")
@@ -218,15 +246,18 @@ def fetch_nse_ipos() -> List[IPOEntry]:
             subscription_multiple = round(no_of_time, 2)
         else:
             subscription_multiple = _calc_subscription_multiple(bid_total, offered_total)
-        if not (name and open_date and close_date and issue_price):
+        if not (name and open_date and close_date):
             continue
         ipos.append(
             IPOEntry(
                 name,
                 symbol,
+                ipo_type,
                 open_date,
                 close_date,
                 issue_price,
+                minimum_lot_size,
+                minimum_application_amount,
                 subscription_multiple,
             )
         )
@@ -247,6 +278,15 @@ def _parse_gmp_table(html: str, source: str) -> List[GMPEntry]:
             0,
         )
         gmp_idx = next((i for i, h in enumerate(headers) if "gmp" in h or "premium" in h), None)
+        price_idx = next(
+            (
+                i
+                for i, h in enumerate(headers)
+                if "price" in h and "listing" not in h and "gmp" not in h
+            ),
+            None,
+        )
+        lot_idx = next((i for i, h in enumerate(headers) if "lot" in h), None)
 
         rows = table.select("tbody tr") or table.select("tr")
         for row in rows:
@@ -292,7 +332,23 @@ def _parse_gmp_table(html: str, source: str) -> List[GMPEntry]:
                         break
             if maybe_gmp is None:
                 continue
-            out.append(GMPEntry(name, maybe_gmp, source))
+            issue_price = None
+            if price_idx is not None and price_idx < len(cols):
+                issue_price = _parse_issue_price(cols[price_idx])
+            minimum_lot_size = None
+            if lot_idx is not None and lot_idx < len(cols):
+                lot_value = _extract_float(cols[lot_idx])
+                if lot_value is not None and lot_value > 0:
+                    minimum_lot_size = int(lot_value)
+            out.append(
+                GMPEntry(
+                    name,
+                    maybe_gmp,
+                    source,
+                    issue_price=issue_price,
+                    minimum_lot_size=minimum_lot_size,
+                )
+            )
     return out
 
 
@@ -420,7 +476,12 @@ def _find_best_gmp_match(ipo_name: str, symbol: str, gmp_entries: List[GMPEntry]
     return None, best_score
 
 
-def _decide_action(gmp_percent: float) -> Dict[str, str]:
+def _decide_action(gmp_percent: Optional[float]) -> Dict[str, str]:
+    if gmp_percent is None:
+        return {
+            "action": "WATCH",
+            "reason": "GMP percentage is unavailable because GMP or issue price data is missing.",
+        }
     if gmp_percent < 5:
         return {
             "action": "AVOID",
@@ -453,13 +514,25 @@ def build_track_payload() -> Dict[str, Any]:
         gmp, score = _find_best_gmp_match(ipo.ipo_name, ipo.symbol, gmp_rows)
         if not gmp:
             logger.debug("No GMP match found for IPO: %s (best score: %.2f)", ipo.ipo_name, score)
-            continue
-        gmp_percent = round((gmp.gmp / ipo.issue_price) * 100, 1)
+        issue_price = ipo.issue_price or (gmp.issue_price if gmp is not None else None)
+        minimum_lot_size = ipo.minimum_lot_size or (
+            gmp.minimum_lot_size if gmp is not None else None
+        )
+        minimum_application_amount = ipo.minimum_application_amount
+        if minimum_application_amount is None and issue_price is not None and minimum_lot_size is not None:
+            minimum_application_amount = round(issue_price * minimum_lot_size, 2)
+        gmp_percent = None
+        if gmp is not None and issue_price is not None and issue_price > 0:
+            gmp_percent = round((gmp.gmp / issue_price) * 100, 1)
         action_pack = _decide_action(gmp_percent)
         out_rows.append(
             {
                 "ipo_name": ipo.ipo_name,
+                "ipo_type": ipo.ipo_type,
                 "subscription_window": f"{_format_date(ipo.open_date)} – {_format_date(ipo.close_date)}",
+                "issue_price": issue_price,
+                "minimum_lot_size": minimum_lot_size,
+                "minimum_application_amount": minimum_application_amount,
                 "gmp_percent": gmp_percent,
                 "subscription_multiple": ipo.subscription_multiple,
                 "action": action_pack["action"],

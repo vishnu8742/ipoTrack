@@ -2,8 +2,9 @@
 
 Simple Flask API to:
 
-- fetch active IPOs from NSE
+- fetch active mainboard and SME IPOs from NSE
 - scrape GMP from Chittorgarh and IPOWatch
+- calculate the minimum IPO application amount from upper price and lot size
 - fetch gold price from Safegold
 - compute GMP percent
 - return cleaned JSON
@@ -38,7 +39,11 @@ Simple Flask API to:
   "ipos": [
     {
       "ipo_name": "PNGS Reva Diamond Jewellery Limited",
+      "ipo_type": "MAINBOARD",
       "subscription_window": "24 Feb 2026 – 26 Feb 2026",
+      "issue_price": 386.0,
+      "minimum_lot_size": 38,
+      "minimum_application_amount": 14668.0,
       "gmp_percent": 3.9,
       "subscription_multiple": 1.25,
       "action": "AVOID",

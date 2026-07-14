@@ -46,16 +46,27 @@ def build_discord_payload(track_payload: Dict[str, Any]) -> Dict[str, Any]:
     # IPO fields
     for ipo in ipos:
         name = ipo.get("ipo_name", "Unknown IPO")
+        ipo_type = ipo.get("ipo_type", "MAINBOARD")
         window = ipo.get("subscription_window", "N/A")
-        gmp = ipo.get("gmp_percent", "N/A")
-        subs = ipo.get("subscription_multiple", "N/A")
+        gmp = ipo.get("gmp_percent")
+        subs = ipo.get("subscription_multiple")
+        lot_size = ipo.get("minimum_lot_size")
+        minimum_amount = ipo.get("minimum_application_amount")
         action = ipo.get("action", "WATCH")
         reason = ipo.get("reason", "")
 
+        gmp_text = f"{gmp}%" if gmp is not None else "N/A"
+        subscription_text = f"{subs}x" if subs is not None else "N/A"
+        lot_text = f"{lot_size} shares" if lot_size is not None else "N/A"
+        amount_text = f"₹{minimum_amount:,.2f}" if minimum_amount is not None else "N/A"
+
         value = (
             f"📅 **Window:** {window}\n"
-            f"📈 **GMP:** {gmp}%\n"
-            f"📊 **Subscription:** {subs}x\n"
+            f"📊 **Type:** {ipo_type}\n"
+            f"📈 **GMP:** {gmp_text}\n"
+            f"📊 **Subscription:** {subscription_text}\n"
+            f"📦 **Minimum lot:** {lot_text}\n"
+            f"💰 **Minimum application:** {amount_text}\n"
             f"⚠️ **Action:** **{action}**\n\n"
             f"**Reason**\n{reason}"
         )
