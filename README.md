@@ -2,7 +2,7 @@
 
 Simple Flask API to:
 
-- fetch active mainboard and SME IPOs from NSE
+- fetch active mainboard and SME IPOs from NSE and BSE SME
 - scrape GMP from Chittorgarh and IPOWatch
 - calculate the minimum IPO application amount from upper price and lot size
 - fetch gold price from Safegold
@@ -84,6 +84,7 @@ Default app port is `8001`.
 - `TELEGRAM_DISABLE_WEB_PREVIEW`: `true`/`false` (default `true`)
 - `SAFEGOLD_BUY_URL`: Safegold API endpoint for gold buy price
 - `SAFEGOLD_SELL_URL`: Safegold API endpoint for gold sell price
+- `BSE_SME_PUBLIC_ISSUES_URL`: optional BSE SME public issues page override
 - `TRACK_NOTIFY_TOKEN`: secret token for manual/external triggering
 - `TRACK_NOTIFY_ALLOW_IPS`: comma-separated allowed IPs (non-loopback)
 - `TRACK_TIMEZONE`: timezone used to identify the last application day (default `Asia/Kolkata`)

@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 NSE_HOME = "https://www.nseindia.com/"
 NSE_IPO_API = "https://www.nseindia.com/api/ipo-current-issue"
+BSE_SME_PUBLIC_ISSUES_URL = "https://www.bsesme.com/PublicIssues/PublicIssues.aspx?id=1"
 CHITTORGARH_GMP_URL = "https://www.chittorgarh.com/ipo/ipo-grey-market-premium-latest-gmp/22/"
 IPOWATCH_GMP_URL = "https://ipowatch.in/ipo-grey-market-premium-latest/"
 SAFEGOLD_BUY_URL = (
@@ -174,6 +175,7 @@ def _parse_date(value: str) -> Optional[dt.date]:
         "%d %b %Y",
         "%d %B %Y",
         "%d/%m/%Y",
+        "%d-%m-%Y",
         "%Y-%m-%d",
     ]
     for fmt in formats:
@@ -268,6 +270,137 @@ def fetch_nse_ipos() -> List[IPOEntry]:
             )
         )
     return ipos
+
+
+def _text_cells(row: Any) -> List[str]:
+    return [c.get_text(" ", strip=True) for c in row.find_all(["td", "th"])]
+
+
+def _parse_bse_sme_row(cols: List[str]) -> Optional[IPOEntry]:
+    if len(cols) < 4:
+        return None
+
+    date_positions = [
+        i for i, col in enumerate(cols)
+        if _parse_date(col) is not None and re.fullmatch(r"\d{2}-\d{2}-\d{4}", col.strip())
+    ]
+    if len(date_positions) != 2:
+        return None
+
+    start_idx, end_idx = date_positions[0], date_positions[1]
+    name_parts = [c for c in cols[:start_idx] if c and "public issues" not in c.lower()]
+    name = name_parts[-1].strip() if name_parts else ""
+    open_date = _parse_date(cols[start_idx])
+    close_date = _parse_date(cols[end_idx])
+    if not (name and open_date and close_date):
+        return None
+
+    status = cols[-1].strip().lower() if cols else ""
+    if status and status not in {"live", "forthcoming"}:
+        return None
+
+    issue_price = None
+    if end_idx + 1 < len(cols):
+        issue_price = _parse_issue_price(cols[end_idx + 1])
+
+    return IPOEntry(
+        name,
+        "",
+        "SME",
+        open_date,
+        close_date,
+        issue_price,
+        None,
+        None,
+        None,
+    )
+
+
+def fetch_bse_sme_ipos() -> List[IPOEntry]:
+    url = os.getenv("BSE_SME_PUBLIC_ISSUES_URL", BSE_SME_PUBLIC_ISSUES_URL).strip() or BSE_SME_PUBLIC_ISSUES_URL
+    session = _session()
+    session.headers.update({"Referer": "https://www.bsesme.com/"})
+    try:
+        logger.debug("Fetching BSE SME IPO data from: %s", url)
+        response = session.get(url, timeout=20)
+        logger.debug(
+            "BSE SME response status=%s headers=%s body_sample=%s",
+            response.status_code,
+            dict(response.headers),
+            (response.text or "")[:500],
+        )
+        response.raise_for_status()
+    except Exception as e:
+        logger.exception("Error fetching BSE SME IPOs: %s", e)
+        return []
+
+    soup = BeautifulSoup(response.text, "html.parser")
+    ipos: List[IPOEntry] = []
+    for row in soup.select("tr"):
+        ipo = _parse_bse_sme_row(_text_cells(row))
+        if ipo:
+            ipos.append(ipo)
+    logger.debug("Fetched %d BSE SME IPOs", len(ipos))
+    return ipos
+
+
+def _merge_ipo_entries(primary: List[IPOEntry], secondary: List[IPOEntry]) -> List[IPOEntry]:
+    merged: List[IPOEntry] = []
+    index: Dict[str, int] = {}
+
+    def keys_for(ipo: IPOEntry) -> List[str]:
+        keys = [_normalize_name(ipo.ipo_name)]
+        if ipo.symbol:
+            keys.append(_normalize_name(ipo.symbol))
+        return [k for k in keys if k]
+
+    def add_or_merge(ipo: IPOEntry) -> None:
+        keys = keys_for(ipo)
+        if not keys:
+            return
+        existing_idx = next((index[k] for k in keys if k in index), None)
+        if existing_idx is None:
+            new_idx = len(merged)
+            for key in keys:
+                index[key] = new_idx
+            merged.append(ipo)
+            return
+
+        current = merged[existing_idx]
+        merged[existing_idx] = IPOEntry(
+            current.ipo_name or ipo.ipo_name,
+            current.symbol or ipo.symbol,
+            "SME" if current.ipo_type == "SME" or ipo.ipo_type == "SME" else current.ipo_type,
+            current.open_date or ipo.open_date,
+            current.close_date or ipo.close_date,
+            current.issue_price if current.issue_price is not None else ipo.issue_price,
+            current.minimum_lot_size if current.minimum_lot_size is not None else ipo.minimum_lot_size,
+            current.minimum_application_amount
+            if current.minimum_application_amount is not None
+            else ipo.minimum_application_amount,
+            current.subscription_multiple if current.subscription_multiple is not None else ipo.subscription_multiple,
+        )
+        for key in keys_for(merged[existing_idx]):
+            index[key] = existing_idx
+
+    for item in primary:
+        add_or_merge(item)
+    for item in secondary:
+        add_or_merge(item)
+    return merged
+
+
+def fetch_all_ipos() -> List[IPOEntry]:
+    nse_ipos = fetch_nse_ipos()
+    bse_sme_ipos = fetch_bse_sme_ipos()
+    merged = _merge_ipo_entries(nse_ipos, bse_sme_ipos)
+    logger.debug(
+        "Merged IPOs: nse=%d bse_sme=%d merged=%d",
+        len(nse_ipos),
+        len(bse_sme_ipos),
+        len(merged),
+    )
+    return merged
 
 
 def _parse_gmp_table(html: str, source: str) -> List[GMPEntry]:
@@ -506,7 +639,7 @@ def _decide_action(gmp_percent: Optional[float]) -> Dict[str, str]:
 
 def build_track_payload() -> Dict[str, Any]:
     logger.debug("Building track payload")
-    ipos = fetch_nse_ipos()
+    ipos = fetch_all_ipos()
     logger.debug("Fetched %d IPOs", len(ipos))
     gmp_rows = scrape_chittorgarh_gmp() + scrape_ipowatch_gmp()
     logger.debug("Collected %d GMP rows", len(gmp_rows))
